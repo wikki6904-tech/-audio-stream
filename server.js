@@ -181,6 +181,28 @@ wss.on('connection', (ws, req) => {
         ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
         break;
 
+      case 'audio_chunk':
+        // Аудио данные пришли как JSON, пересылаем слушателям
+        if (streamId) {
+          const stream = streams.get(streamId);
+          if (stream) {
+            stream.packetsReceived++;
+            
+            let sentCount = 0;
+            stream.listeners.forEach(listener => {
+              if (listener.readyState === WebSocket.OPEN) {
+                listener.send(JSON.stringify(message));
+                sentCount++;
+              }
+            });
+
+            if (stream.packetsReceived % 100 === 0) {
+              console.log(`📊 ${streamId}: получено ${stream.packetsReceived} пакетов, отправлено ${sentCount} слушателям`);
+            }
+          }
+        }
+        break;
+
       default:
         console.log(`❓ Неизвестная команда: ${message.type}`);
     }
