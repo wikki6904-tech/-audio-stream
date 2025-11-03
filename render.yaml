@@ -1,0 +1,7 @@
+services:
+  - type: web
+    name: audio-stream-server
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
