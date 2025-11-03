@@ -131,6 +131,7 @@ wss.on('connection', (ws, req) => {
         }
         break;
 
+      case 'listen':
       case 'listen_stream':
         // Панель управления хочет слушать
         clientType = 'listener';
@@ -183,8 +184,11 @@ wss.on('connection', (ws, req) => {
 
       case 'audio_chunk':
         // Аудио данные пришли как JSON, пересылаем слушателям
-        if (streamId) {
-          const stream = streams.get(streamId);
+        // Используем streamId из сообщения если есть
+        const chunkStreamId = message.streamId || streamId;
+        
+        if (chunkStreamId) {
+          const stream = streams.get(chunkStreamId);
           if (stream) {
             stream.packetsReceived++;
             
@@ -196,10 +200,14 @@ wss.on('connection', (ws, req) => {
               }
             });
 
-            if (stream.packetsReceived % 100 === 0) {
-              console.log(`📊 ${streamId}: получено ${stream.packetsReceived} пакетов, отправлено ${sentCount} слушателям`);
+            if (stream.packetsReceived % 10 === 0) {
+              console.log(`📊 ${chunkStreamId}: получено ${stream.packetsReceived} пакетов, отправлено ${sentCount} слушателям`);
             }
+          } else {
+            console.log(`⚠️ Стрим не найден для audio_chunk: ${chunkStreamId}`);
           }
+        } else {
+          console.log(`⚠️ audio_chunk без streamId`);
         }
         break;
 
