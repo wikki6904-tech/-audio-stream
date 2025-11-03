@@ -98,7 +98,8 @@ wss.on('connection', (ws, req) => {
           streamer: ws,
           listeners: [],
           startedAt: Date.now(),
-          packetsReceived: 0
+          packetsReceived: 0,
+          lastActivity: Date.now()
         });
 
         ws.send(JSON.stringify({
@@ -191,17 +192,25 @@ wss.on('connection', (ws, req) => {
           const stream = streams.get(chunkStreamId);
           if (stream) {
             stream.packetsReceived++;
+            stream.lastActivity = Date.now();
             
             let sentCount = 0;
+            let skippedCount = 0;
+            
             stream.listeners.forEach(listener => {
               if (listener.readyState === WebSocket.OPEN) {
-                listener.send(JSON.stringify(message));
-                sentCount++;
+                // Проверяем буфер WebSocket - если переполнен, пропускаем
+                if (listener.bufferedAmount < 1024 * 100) { // 100KB буфер
+                  listener.send(JSON.stringify(message));
+                  sentCount++;
+                } else {
+                  skippedCount++;
+                }
               }
             });
 
-            if (stream.packetsReceived % 10 === 0) {
-              console.log(`📊 ${chunkStreamId}: получено ${stream.packetsReceived} пакетов, отправлено ${sentCount} слушателям`);
+            if (stream.packetsReceived % 50 === 0) {
+              console.log(`📊 ${chunkStreamId}: получено ${stream.packetsReceived}, отправлено ${sentCount}, пропущено ${skippedCount}`);
             }
           } else {
             console.log(`⚠️ Стрим не найден для audio_chunk: ${chunkStreamId}`);
@@ -244,13 +253,27 @@ wss.on('connection', (ws, req) => {
 setInterval(() => {
   const now = Date.now();
   for (const [streamId, stream] of streams.entries()) {
-    // Удалить стримы старше 10 минут без активности
-    if (now - stream.startedAt > 10 * 60 * 1000) {
-      console.log(`🗑️ Удаление неактивного стрима: ${streamId}`);
+    // Удалить стримы без активности более 2 минут
+    const inactiveTime = now - (stream.lastActivity || stream.startedAt);
+    if (inactiveTime > 2 * 60 * 1000) {
+      console.log(`🗑️ Удаление неактивного стрима: ${streamId} (неактивен ${Math.floor(inactiveTime / 1000)}с)`);
+      
+      // Уведомить слушателей
+      stream.listeners.forEach(listener => {
+        if (listener.readyState === WebSocket.OPEN) {
+          listener.send(JSON.stringify({
+            type: 'stream_ended',
+            streamId: streamId,
+            reason: 'inactive',
+            timestamp: Date.now()
+          }));
+        }
+      });
+      
       streams.delete(streamId);
     }
   }
-}, 60000); // Каждую минуту
+}, 30000); // Каждые 30 секунд
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
