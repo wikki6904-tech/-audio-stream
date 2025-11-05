@@ -5,7 +5,10 @@ const http = require('http');
 
 const app = express();
 const server = http.createServer(app);
-const wss = new WebSocket.Server({ server });
+const wss = new WebSocket.Server({ 
+  server,
+  perMessageDeflate: false // Отключаем компрессию для меньшей задержки
+});
 
 // Хранилище активных стримов
 const streams = new Map();
@@ -23,9 +26,17 @@ app.get('/health', (req, res) => {
   });
 });
 
+// Heartbeat функция
+function heartbeat() {
+  this.isAlive = true;
+}
+
 // WebSocket подключения
 wss.on('connection', (ws, req) => {
   console.log('🔌 Новое подключение');
+  
+  ws.isAlive = true;
+  ws.on('pong', heartbeat);
   
   let clientType = null;
   let deviceId = null;
@@ -180,6 +191,7 @@ wss.on('connection', (ws, req) => {
         break;
 
       case 'ping':
+        ws.isAlive = true; // Обновляем статус при клиентском ping
         ws.send(JSON.stringify({ type: 'pong', timestamp: Date.now() }));
         break;
 
@@ -275,8 +287,25 @@ setInterval(() => {
   }
 }, 30000); // Каждые 30 секунд
 
+// Heartbeat: проверяем живые соединения каждые 20 секунд
+const heartbeatInterval = setInterval(() => {
+  wss.clients.forEach((ws) => {
+    if (ws.isAlive === false) {
+      console.log('💀 Закрываю мертвое соединение');
+      return ws.terminate();
+    }
+    ws.isAlive = false;
+    ws.ping(); // Отправляем нативный ping
+  });
+}, 20000);
+
+wss.on('close', () => {
+  clearInterval(heartbeatInterval);
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
   console.log(`🚀 WebSocket сервер запущен на порту ${PORT}`);
   console.log(`📡 ws://localhost:${PORT}`);
+  console.log(`⚡ Компрессия отключена, heartbeat каждые 20с`);
 });
