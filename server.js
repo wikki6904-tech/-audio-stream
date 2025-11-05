@@ -5,6 +5,12 @@ const http = require('http');
 
 const app = express();
 const server = http.createServer(app);
+
+// Настройки keep-alive для стабильности на Render
+server.keepAliveTimeout = 75 * 1000;
+server.headersTimeout = 76 * 1000;
+server.setTimeout(0); // Отключаем таймаут бездействия
+
 const wss = new WebSocket.Server({ 
   server,
   perMessageDeflate: false // Отключаем компрессию для меньшей задержки
@@ -35,6 +41,11 @@ function heartbeat() {
 wss.on('connection', (ws, req) => {
   console.log('🔌 Новое подключение');
   
+  // Отключаем Nagle для меньшей задержки
+  if (ws._socket && ws._socket.setNoDelay) {
+    ws._socket.setNoDelay(true);
+  }
+  
   ws.isAlive = true;
   ws.on('pong', heartbeat);
   
@@ -42,10 +53,10 @@ wss.on('connection', (ws, req) => {
   let deviceId = null;
   let streamId = null;
 
-  ws.on('message', (data) => {
+  ws.on('message', (data, isBinary) => {
     try {
-      // Проверяем - это JSON команда или бинарные аудио-данные
-      if (data[0] === 0x7B) { // '{' - начало JSON
+      // Более надежная проверка типа данных
+      if (!isBinary) {
         const message = JSON.parse(data.toString());
         handleCommand(ws, message);
       } else {
